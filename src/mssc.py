@@ -62,8 +62,7 @@ class AMS(nn.Module):
         self.conv2_2 = nn.Conv2d(dim//4, dim//4, (11, 1), padding=(5, 0), groups=dim//4)
         self.selayer3 = SEModule(dim//4,reduction=4)
 
-
-        self.norm_layer = nn.BatchNorm2d(dim)
+        self.norm_layer = nn.GroupNorm(4,dim)
         self.conv2 = nn.Conv2d(dim,dim,1)
         self.gelu = nn.GELU()
 
@@ -208,7 +207,13 @@ class SEModule(nn.Module):
         y = self.fc(y).view(b, c, 1, 1)
         return x * y.expand_as(x)
 
+class SSE(nn.Module):
+    def __init__(self, in_channels):
+        super(SSE, self).__init__()
+        self.sSE = nn.Sequential(nn.Conv2d(in_channels, 1, 1), nn.Sigmoid())
 
+    def forward(self, x):
+        return x * self.sSE(x)
 
 
 # class SEModule(nn.Module):
@@ -502,28 +507,25 @@ class mssc(nn.Module):
     def forward(self, x: torch.Tensor) -> Dict[str, torch.Tensor]:
         x1 = self.in_conv(x)
         x2 = self.down1(x1)
-        d_kd1 = nn.Conv2d(64, 32, kernel_size=1).to('cuda')
-        d_kd1 = d_kd1(x2)
         x3 = self.down2(x2)
-        d_kd2 = nn.Conv2d(128, 64 , kernel_size=1).to('cuda')
-        d_kd2 = d_kd2(x3)
         x4 = self.down3(x3)
-        d_kd3 = nn.Conv2d(256, 128, kernel_size=1).to('cuda')
-        d_kd3 = d_kd3(x4)
         x5 = self.down4(x4)
         # X5 X4
-        xd1 = self.up1(x3, x4, x5)
+        x = self.up1(x3, x4, x5)
+
+
         # X5 X4 X3
-        xd2 = self.up2(x2, x3, x4,xd1)
+        x = self.up2(x2, x3, x4,x)
+
+
         # X4 X3 X2
-        xd3 = self.up3(x1, x2, x3,xd2)
+        x = self.up3(x1, x2, x3,x)
+
+
         # X3 X2 X1
-        xd4 = self.up4(x1, x2, xd3)
-        logits = self.out_conv(xd4)
-        kd_list = [[d_kd1,d_kd2,d_kd3],[xd3,xd2,xd1]]
-        return {"out": logits}, kd_list
-
-
+        x = self.up4(x1, x2, x)
+        logits = self.out_conv(x)
+        return {"out": logits}
 
 
 if __name__ == '__main__':
